@@ -11,13 +11,13 @@ INDEX_HTML = """
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>製本管理業務 - 工程管理予定表ジェネレーター</title>
+    <title>製本管理業務 - 工程管理予定表システム</title>
     <style>
         body { font-family: sans-serif; margin: 40px; background-color: #f9f9f9; color: #333; }
         h1 { color: #007bff; border-bottom: 2px solid #007bff; padding-bottom: 10px; }
-        .card { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .card { background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
         label { font-weight: bold; display: block; margin-top: 15px; }
-        input[type="file"], input[type="number"] { margin-top: 5px; margin-bottom: 10px; display: block; }
+        input[type="file"], input[type="number"] { margin-top: 5px; margin-bottom: 10px; display: block; width: 100%; max-width: 400px; padding: 6px; }
         button { background-color: #28a745; color: white; border: none; padding: 12px 24px; font-size: 16px; border-radius: 4px; cursor: pointer; margin-top: 20px; }
         button:hover { background-color: #218838; }
         .note { font-size: 12px; color: #666; margin-top: 2px; }
@@ -31,6 +31,7 @@ INDEX_HTML = """
             
             <label>CSV① 受注データ（必須）:</label>
             <input type="file" name="csv1" accept=".csv" required>
+            <div class="note">※受注日、受注番号、得意先、書名1、受注部数、納期日付、順、工程、実行工程、人数、所要時間（30分単位）</div>
             
             <label>CSV② 休暇シフトデータ（任意）:</label>
             <input type="file" name="csv2" accept=".csv">
@@ -61,7 +62,6 @@ def index():
 @app.route('/upload', methods=['POST'])
 def upload_files():
     try:
-        # アップロードされたファイルとパラメータの取得
         f1 = request.files.get('csv1')
         f2 = request.files.get('csv2')
         f3 = request.files.get('csv3')
@@ -84,6 +84,15 @@ def upload_files():
         if f3 and f3.filename:
             df_ng = pd.read_csv(io.StringIO(f3.read().decode('utf-8')))
 
+        # ★【ご要望対応】「工程」が空欄・空白・NaNの行を完全に自動除外する
+        if '工程' in df_order.columns:
+            df_order = df_order.dropna(subset=['工程'])
+            df_order = df_order[df_order['工程'].astype(str).str.strip() != '']
+            df_order = df_order[df_order['工程'].astype(str).str.lower() != 'nan']
+
+        if df_order.empty:
+            return "<h3>エラー:</h3><p>有効な「工程」データが存在する行が見つかりませんでした。</p><br><a href='/'>戻る</a>", 400
+
         # 工程の順番（順）を守るために受注番号と順でソート
         df_order = df_order.sort_values(by=["受注番号", "順"])
 
@@ -97,7 +106,7 @@ def upload_files():
             process = str(row.get("工程", ""))
             staff_needed = int(row.get("人数", 1))
             duration_slots = float(row.get("所要時間（30分単位）", 2))
-            hours = duration_slots * 0.5  # 30分単位を時間に換算
+            hours = duration_slots * 0.5  # 30分単位を時間に換算（1コマ30分 = 0.5時間）
             due_date_str = str(row.get("納期日付", ""))
 
             # 納期から逆算した完成期日（納期の●日前）の算出
@@ -108,7 +117,7 @@ def upload_files():
             except:
                 target_date_str = due_date_str
 
-            # 予定結果の格納
+            # 予定結果の格納（1タスク単位）
             scheduled_results.append({
                 "日付": target_date_str,
                 "順番": seq,
@@ -134,7 +143,7 @@ def upload_files():
             <meta charset="UTF-8">
             <title>工程管理予定表 結果</title>
             <style>
-                body { font-family: sans-serif; margin: 30px; background-color: #fdfdfd; }
+                body { font-family: sans-serif; margin: 30px; background-color: #fdfdfd; color: #333; }
                 table { width: 100%; border-collapse: collapse; margin-top: 15px; margin-bottom: 30px; }
                 th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
                 th { background-color: #007bff; color: white; }
@@ -168,7 +177,7 @@ def upload_files():
         return result_html
 
     except Exception as e:
-        return f"<h3>エラーが発生しました:</h3><p>{str.format(str(e))}</p><br><a href='/'>戻る</a>", 500
+        return f"<h3>エラーが発生しました:</h3><p>{str(e)}</p><br><a href='/'>戻る</a>", 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
